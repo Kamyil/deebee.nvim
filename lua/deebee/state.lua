@@ -10,6 +10,10 @@ local state = {
     root = {},
     schemas = {},
   },
+  explorer_expanded = {
+    schemas = {},
+    groups = {},
+  },
   explorer_items = {},
   last_query = nil,
   result_grid = nil,
@@ -80,6 +84,10 @@ function M.clear_active_session()
     root = {},
     schemas = {},
   }
+  state.explorer_expanded = {
+    schemas = {},
+    groups = {},
+  }
   state.explorer_items = {}
   state.last_query = nil
   state.result_grid = nil
@@ -90,6 +98,69 @@ function M.set_catalog(root_nodes, schema_nodes)
     root = root_nodes or {},
     schemas = schema_nodes or {},
   }
+end
+
+local function group_key(schema, object_kind)
+  return string.format('%s:%s', schema, object_kind)
+end
+
+function M.sync_explorer_expansion()
+  local schemas = {}
+  local groups = {}
+  local catalog = state.catalog
+
+  for _, schema in ipairs(catalog.root or {}) do
+    local schema_name = schema.name
+    if state.explorer_expanded.schemas[schema_name] == nil then
+      schemas[schema_name] = true
+    else
+      schemas[schema_name] = state.explorer_expanded.schemas[schema_name]
+    end
+
+    local objects = catalog.schemas and catalog.schemas[schema_name] or {}
+    local seen_groups = {}
+    for _, object in ipairs(objects) do
+      seen_groups[object.kind] = true
+    end
+
+    for object_kind in pairs(seen_groups) do
+      local key = group_key(schema_name, object_kind)
+      if state.explorer_expanded.groups[key] == nil then
+        groups[key] = true
+      else
+        groups[key] = state.explorer_expanded.groups[key]
+      end
+    end
+  end
+
+  state.explorer_expanded = {
+    schemas = schemas,
+    groups = groups,
+  }
+end
+
+function M.schema_expanded(schema)
+  return state.explorer_expanded.schemas[schema] == true
+end
+
+function M.group_expanded(schema, object_kind)
+  return state.explorer_expanded.groups[group_key(schema, object_kind)] == true
+end
+
+function M.set_schema_expanded(schema, expanded)
+  state.explorer_expanded.schemas[schema] = expanded and true or false
+end
+
+function M.set_group_expanded(schema, object_kind, expanded)
+  state.explorer_expanded.groups[group_key(schema, object_kind)] = expanded and true or false
+end
+
+function M.toggle_schema_expanded(schema)
+  M.set_schema_expanded(schema, not M.schema_expanded(schema))
+end
+
+function M.toggle_group_expanded(schema, object_kind)
+  M.set_group_expanded(schema, object_kind, not M.group_expanded(schema, object_kind))
 end
 
 function M.catalog()

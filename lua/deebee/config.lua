@@ -14,7 +14,7 @@ M.values = {
   default_connection = nil,
   workspace = {
     explorer_width = 32,
-    results_height = 14,
+    results_width = 100,
   },
 }
 

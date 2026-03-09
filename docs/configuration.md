@@ -74,14 +74,22 @@ This is especially useful while iterating on the Rust worker locally.
 - `:DeebeePrevPage` - move to the previous cached result page
 - `:DeebeeRefreshExplorer` - reload explorer data for the active session
 - `:DeebeeExplorerOpen` - open the explorer item under the cursor
+- `:DeebeeExplorerToggle` - toggle the explorer node under the cursor
+- `:DeebeeExplorerExpand` - expand the explorer node under the cursor
+- `:DeebeeExplorerCollapse` - collapse the explorer node under the cursor
 - `:DeebeeInstall` - ensure the pinned worker is installed
 - `:DeebeeUpdateWorker` - reinstall the pinned worker explicitly
 - `:DeebeeWorkerInfo` - inspect worker resolution and version info
 
 Explorer keymaps:
 
+- `<CR>` on a schema or object group toggles expand/collapse
+- `<Tab>` on a schema or object group toggles expand/collapse
 - `<CR>` on a connection line connects to it
 - `<CR>` on a table, view, or materialized view line runs `select * from schema.object;`
+- `za` toggles the current schema or object group
+- `zo` expands the current schema or object group
+- `zc` collapses the current schema or object group
 
 ## 5. Current Limits
 

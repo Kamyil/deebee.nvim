@@ -116,5 +116,7 @@ Current results grid behavior:
 
 Current explorer behavior:
 
+- `Enter` on a schema or object group toggles expand/collapse
+- `Tab` on a schema or object group toggles expand/collapse
 - `Enter` on a table, view, or materialized view runs `select * from <schema>.<object>;`
 - `Enter` on a connection line connects to that database

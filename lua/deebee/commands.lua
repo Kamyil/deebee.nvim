@@ -6,6 +6,23 @@ local worker = require('deebee.worker')
 
 local M = {}
 
+local icons = {
+  connections = '󰆼',
+  connection = '󰈆',
+  schemas = '󰙅',
+  schema = '󰌗',
+  view_group = '󰈈',
+  materialized_view_group = '󰍹',
+  table_group = '󰓫',
+  view = '󰈈',
+  materialized_view = '󰍹',
+  table = '󰓫',
+  commands = '󰘳',
+  command = '󰘳',
+  expanded = '',
+  collapsed = '',
+}
+
 local explorer_labels = {
   view = 'Views',
   materialized_view = 'Materialized Views',
@@ -32,15 +49,19 @@ end
 
 local function render_explorer()
   local lines = {
-    'deebee.nvim',
+    icons.connections .. ' deebee.nvim',
     '',
-    'Connections',
+    icons.connections .. ' Connections',
   }
   local explorer_items = {}
 
   local function push_line(text, item)
     table.insert(lines, text)
     explorer_items[#lines] = item
+  end
+
+  local function object_icon(kind)
+    return icons[kind] or '•'
   end
 
   local active_connection = state.active_connection()
@@ -52,7 +73,7 @@ local function render_explorer()
     if active_session and active_session.connection_id == connection.id then
       suffix = ' [connected]'
     end
-    push_line(string.format('%s %s (%s)%s', prefix, connection.name, connection.adapter, suffix), {
+    push_line(string.format('%s %s %s (%s)%s', prefix, icons.connection, connection.name, connection.adapter, suffix), {
       kind = 'connection',
       connection_id = connection.id,
       adapter = connection.adapter,
@@ -66,12 +87,14 @@ local function render_explorer()
   push_line('')
 
   if active_session then
-    push_line('Schemas')
+    push_line(icons.schemas .. ' Schemas')
     local catalog = state.catalog()
     for _, schema in ipairs(catalog.root or {}) do
-      push_line('  - ' .. schema.name, {
+      local schema_expanded = state.schema_expanded(schema.name)
+      push_line(string.format('  %s %s %s', schema_expanded and icons.expanded or icons.collapsed, icons.schema, schema.name), {
         kind = 'schema',
         schema = schema.name,
+        expanded = schema_expanded,
       })
 
       local objects = catalog.schemas and catalog.schemas[schema.name] or {}
@@ -81,16 +104,29 @@ local function render_explorer()
         table.insert(grouped[object.kind], object)
       end
 
+      local present_groups = {}
       for _, kind in ipairs(explorer_order) do
+        if grouped[kind] and #grouped[kind] > 0 then
+          table.insert(present_groups, kind)
+        end
+      end
+
+      for _, kind in ipairs(present_groups) do
         local entries = grouped[kind]
-        if entries and #entries > 0 then
-          push_line('    ' .. explorer_labels[kind], {
+        local group_expanded = state.group_expanded(schema.name, kind)
+
+        if schema_expanded then
+          push_line(string.format('    %s %s %s', group_expanded and icons.expanded or icons.collapsed, object_icon(kind .. '_group'), explorer_labels[kind]), {
             kind = 'group',
             schema = schema.name,
             object_kind = kind,
+            expanded = group_expanded,
           })
+        end
+
+        if schema_expanded and group_expanded then
           for _, object in ipairs(entries) do
-            push_line('      - ' .. object.name, {
+            push_line(string.format('      %s %s', object_icon(object.kind), object.name), {
               kind = 'object',
               schema = schema.name,
               object_kind = object.kind,
@@ -102,17 +138,17 @@ local function render_explorer()
       end
     end
     if #(catalog.root or {}) == 0 then
-      push_line('  no schemas loaded')
+      push_line('  · no schemas loaded')
     end
   else
-    push_line('No active database session')
+    push_line('  · No active database session')
   end
 
   push_line('')
-  push_line('Commands')
-  push_line('  :DeebeeConnect [id]')
-  push_line('  :DeebeeRun')
-  push_line('  :DeebeeNextPage / :DeebeePrevPage')
+  push_line(icons.commands .. ' Commands')
+  push_line('  ' .. icons.command .. ' :DeebeeConnect [id]')
+  push_line('  ' .. icons.command .. ' :DeebeeRun')
+  push_line('  ' .. icons.command .. ' :DeebeeNextPage / :DeebeePrevPage')
 
   state.set_explorer_items(explorer_items)
   workspace.render_explorer(lines)
@@ -135,6 +171,7 @@ local function refresh_catalog()
   end
 
   state.set_catalog(root, schemas)
+  state.sync_explorer_expansion()
   render_explorer()
 end
 
@@ -187,6 +224,53 @@ local function run_object_select(item)
   workspace.set_query_lines({ 'select * from ' .. qualified_name .. ';' })
   workspace.focus_query()
   M.run_query()
+end
+
+local function explorer_item_at_cursor()
+  local workspace_state = state.workspace()
+  if not workspace_state or not workspace_state.windows or not workspace_state.windows.explorer then
+    error('Explorer is not open.')
+  end
+
+  local current_win = vim.api.nvim_get_current_win()
+  if current_win ~= workspace_state.windows.explorer then
+    vim.api.nvim_set_current_win(workspace_state.windows.explorer)
+  end
+
+  local line = vim.api.nvim_win_get_cursor(workspace_state.windows.explorer)[1]
+  return state.explorer_items()[line]
+end
+
+local function set_expanded(item, expanded)
+  if item.kind == 'schema' then
+    state.set_schema_expanded(item.schema, expanded)
+    render_explorer()
+    return true
+  end
+
+  if item.kind == 'group' then
+    state.set_group_expanded(item.schema, item.object_kind, expanded)
+    render_explorer()
+    return true
+  end
+
+  return false
+end
+
+local function toggle_expanded(item)
+  if item.kind == 'schema' then
+    state.toggle_schema_expanded(item.schema)
+    render_explorer()
+    return true
+  end
+
+  if item.kind == 'group' then
+    state.toggle_group_expanded(item.schema, item.object_kind)
+    render_explorer()
+    return true
+  end
+
+  return false
 end
 
 function M.update_worker()
@@ -312,20 +396,13 @@ end
 
 function M.explorer_open()
   with_error_boundary(function()
-    local workspace_state = state.workspace()
-    if not workspace_state or not workspace_state.windows or not workspace_state.windows.explorer then
-      error('Explorer is not open.')
-    end
-
-    local current_win = vim.api.nvim_get_current_win()
-    if current_win ~= workspace_state.windows.explorer then
-      vim.api.nvim_set_current_win(workspace_state.windows.explorer)
-    end
-
-    local line = vim.api.nvim_win_get_cursor(workspace_state.windows.explorer)[1]
-    local item = state.explorer_items()[line]
+    local item = explorer_item_at_cursor()
     if not item then
       notify.warn('No explorer action for this line.')
+      return
+    end
+
+    if toggle_expanded(item) then
       return
     end
 
@@ -340,6 +417,54 @@ function M.explorer_open()
     end
 
     notify.warn('Nothing to open on this line yet.')
+  end)
+end
+
+function M.explorer_toggle()
+  with_error_boundary(function()
+    local item = explorer_item_at_cursor()
+    if not item then
+      notify.warn('No explorer node on this line.')
+      return
+    end
+
+    if toggle_expanded(item) then
+      return
+    end
+
+    notify.warn('This explorer item cannot be toggled.')
+  end)
+end
+
+function M.explorer_expand()
+  with_error_boundary(function()
+    local item = explorer_item_at_cursor()
+    if not item then
+      notify.warn('No explorer node on this line.')
+      return
+    end
+
+    if set_expanded(item, true) then
+      return
+    end
+
+    notify.warn('This explorer item cannot be expanded.')
+  end)
+end
+
+function M.explorer_collapse()
+  with_error_boundary(function()
+    local item = explorer_item_at_cursor()
+    if not item then
+      notify.warn('No explorer node on this line.')
+      return
+    end
+
+    if set_expanded(item, false) then
+      return
+    end
+
+    notify.warn('This explorer item cannot be collapsed.')
   end)
 end
 
@@ -394,6 +519,18 @@ function M.register()
 
   vim.api.nvim_create_user_command('DeebeeExplorerOpen', function()
     M.explorer_open()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeExplorerToggle', function()
+    M.explorer_toggle()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeExplorerExpand', function()
+    M.explorer_expand()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeExplorerCollapse', function()
+    M.explorer_collapse()
   end, {})
 
   vim.api.nvim_create_user_command('DeebeeNextPage', function()

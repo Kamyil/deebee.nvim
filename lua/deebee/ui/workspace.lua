@@ -28,10 +28,10 @@ local function create_workspace()
   local query_buf = vim.api.nvim_create_buf(true, false)
   vim.api.nvim_win_set_buf(query_win, query_buf)
   vim.bo[query_buf].buftype = 'nofile'
-  vim.api.nvim_buf_set_name(query_buf, 'deebee://query')
-  vim.bo[query_buf].filetype = 'sql'
   vim.bo[query_buf].bufhidden = 'hide'
   vim.bo[query_buf].swapfile = false
+  vim.bo[query_buf].filetype = 'sql'
+  vim.api.nvim_buf_set_name(query_buf, 'deebee://query')
   vim.api.nvim_buf_set_lines(query_buf, 0, -1, false, {
     '-- Write SQL here and run :DeebeeRun',
     '-- Use :DeebeeConnect <id> if you have multiple configured connections.',
@@ -45,6 +45,7 @@ local function create_workspace()
   configure_scratch_buffer(explorer_buf, 'deebee://explorer', 'deebee-explorer')
   vim.api.nvim_win_set_buf(explorer_win, explorer_buf)
   vim.api.nvim_win_set_width(explorer_win, config.values.workspace.explorer_width)
+  vim.wo[explorer_win].winfixwidth = true
   vim.bo[explorer_buf].modifiable = false
   vim.bo[explorer_buf].readonly = false
   vim.bo[explorer_buf].buflisted = false
@@ -53,15 +54,38 @@ local function create_workspace()
     silent = true,
     desc = 'Open explorer item',
   })
+  vim.keymap.set('n', '<Tab>', '<Cmd>DeebeeExplorerToggle<CR>', {
+    buffer = explorer_buf,
+    silent = true,
+    desc = 'Toggle explorer node',
+  })
+  vim.keymap.set('n', 'za', '<Cmd>DeebeeExplorerToggle<CR>', {
+    buffer = explorer_buf,
+    silent = true,
+    desc = 'Toggle explorer node',
+  })
+  vim.keymap.set('n', 'zo', '<Cmd>DeebeeExplorerExpand<CR>', {
+    buffer = explorer_buf,
+    silent = true,
+    desc = 'Expand explorer node',
+  })
+  vim.keymap.set('n', 'zc', '<Cmd>DeebeeExplorerCollapse<CR>', {
+    buffer = explorer_buf,
+    silent = true,
+    desc = 'Collapse explorer node',
+  })
 
   vim.api.nvim_set_current_win(query_win)
-  vim.cmd('botright split')
+  vim.cmd('botright vnew')
   local results_win = vim.api.nvim_get_current_win()
   local results_buf = vim.api.nvim_create_buf(false, true)
+  local available_width = math.max(20, vim.o.columns - config.values.workspace.explorer_width - 3)
+  local preferred_results_width = config.values.workspace.results_width or math.floor(available_width / 2)
+  local results_width = math.max(20, math.min(preferred_results_width, math.floor(available_width / 2)))
   configure_scratch_buffer(results_buf, 'deebee://results', 'deebee-results')
   grid.setup_buffer(results_buf)
   vim.api.nvim_win_set_buf(results_win, results_buf)
-  vim.api.nvim_win_set_height(results_win, config.values.workspace.results_height)
+  vim.api.nvim_win_set_width(results_win, results_width)
   vim.wo[results_win].wrap = false
   vim.wo[results_win].number = false
   vim.wo[results_win].relativenumber = false
@@ -95,7 +119,6 @@ function M.ensure_open()
     and is_valid_buffer(workspace.buffers.results)
     and is_valid_window(workspace.windows.query)
   then
-    vim.api.nvim_set_current_win(workspace.windows.query)
     return workspace
   end
 
