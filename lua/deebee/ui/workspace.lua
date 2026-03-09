@@ -76,21 +76,21 @@ local function create_workspace()
   })
 
   vim.api.nvim_set_current_win(query_win)
-  vim.cmd('botright vnew')
+  vim.cmd('botright split')
   local results_win = vim.api.nvim_get_current_win()
   local results_buf = vim.api.nvim_create_buf(false, true)
-  local available_width = math.max(20, vim.o.columns - config.values.workspace.explorer_width - 3)
-  local preferred_results_width = config.values.workspace.results_width or math.floor(available_width / 2)
-  local results_width = math.max(20, math.min(preferred_results_width, math.floor(available_width / 2)))
   configure_scratch_buffer(results_buf, 'deebee://results', 'deebee-results')
   grid.setup_buffer(results_buf)
   vim.api.nvim_win_set_buf(results_win, results_buf)
-  vim.api.nvim_win_set_width(results_win, results_width)
+  vim.api.nvim_win_set_height(query_win, config.values.workspace.query_height)
   vim.wo[results_win].wrap = false
   vim.wo[results_win].number = false
   vim.wo[results_win].relativenumber = false
   vim.wo[results_win].cursorline = true
 
+  vim.api.nvim_set_current_win(explorer_win)
+  vim.cmd('wincmd H')
+  vim.api.nvim_win_set_width(explorer_win, config.values.workspace.explorer_width)
   vim.api.nvim_set_current_win(query_win)
 
   local workspace = {
