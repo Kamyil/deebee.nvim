@@ -1,5 +1,6 @@
 local notify = require('deebee.notify')
 local config = require('deebee.config')
+local grid = require('deebee.grid.results')
 local state = require('deebee.state')
 local workspace = require('deebee.ui.workspace')
 local worker = require('deebee.worker')
@@ -215,6 +216,26 @@ local function current_sql()
   return table.concat(vim.api.nvim_buf_get_lines(current_buf, 0, -1, false), '\n')
 end
 
+local function results_buffer()
+  local workspace_state = state.workspace()
+  if not workspace_state or not workspace_state.buffers or not workspace_state.buffers.results then
+    error('Results grid is not open.')
+  end
+
+  return workspace_state.buffers.results
+end
+
+local function ensure_results_grid_not_dirty(action)
+  local workspace_state = state.workspace()
+  local buf = workspace_state and workspace_state.buffers and workspace_state.buffers.results or nil
+  if buf and grid.has_pending_changes(buf) then
+    error(string.format(
+      'Editable-grid PoC has staged local changes. Commit or rollback before %s.',
+      action or 'continuing'
+    ))
+  end
+end
+
 local function quote_ident(identifier)
   return '"' .. tostring(identifier):gsub('"', '""') .. '"'
 end
@@ -328,6 +349,8 @@ end
 
 function M.run_query()
   with_error_boundary(function()
+    ensure_results_grid_not_dirty('rerunning the query')
+
     local active_session = state.active_session()
     if not active_session then
       local default = state.default_connection()
@@ -354,6 +377,8 @@ end
 
 local function move_page(delta)
   with_error_boundary(function()
+    ensure_results_grid_not_dirty('changing result pages')
+
     local last_query = state.last_query()
     if not last_query then
       error('No query has been executed yet.')
@@ -480,6 +505,36 @@ function M.worker_info()
   notify.info(vim.inspect(info))
 end
 
+function M.edit_results()
+  with_error_boundary(function()
+    grid.toggle_edit_mode(results_buffer())
+  end)
+end
+
+function M.edit_results_cell()
+  with_error_boundary(function()
+    grid.edit_cell(results_buffer())
+  end)
+end
+
+function M.commit_results()
+  with_error_boundary(function()
+    grid.commit(results_buffer())
+  end)
+end
+
+function M.rollback_results()
+  with_error_boundary(function()
+    grid.rollback(results_buffer())
+  end)
+end
+
+function M.revert_results_row()
+  with_error_boundary(function()
+    grid.revert_row(results_buffer())
+  end)
+end
+
 function M.stop_worker()
   worker.stop()
   notify.info('Worker stopped.')
@@ -539,6 +594,26 @@ function M.register()
 
   vim.api.nvim_create_user_command('DeebeePrevPage', function()
     M.prev_page()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeEdit', function()
+    M.edit_results()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeEditCell', function()
+    M.edit_results_cell()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeCommit', function()
+    M.commit_results()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeRollback', function()
+    M.rollback_results()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeRevertRow', function()
+    M.revert_results_row()
   end, {})
 
   vim.api.nvim_create_user_command('DeebeeWorkerInfo', function()

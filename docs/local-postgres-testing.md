@@ -81,10 +81,12 @@ order by t.opened_at desc
 limit 50;
 ```
 
-Editable-grid-friendly examples for later:
+Editable-grid-friendly examples for the local PoC:
 
 ```sql
 select * from app.feature_flags order by id limit 100;
 select id, organization_id, key, enabled, rollout_pct, environments from app.feature_flags order by id limit 100;
 select * from support.tickets order by id limit 100;
 ```
+
+After running one of those, switch to the results pane and try `e`, `<CR>`, `gC`, and `gR`.

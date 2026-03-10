@@ -72,6 +72,11 @@ This is especially useful while iterating on the Rust worker locally.
 - `:DeebeeRun` - run SQL from the current buffer
 - `:DeebeeNextPage` - move to the next cached result page
 - `:DeebeePrevPage` - move to the previous cached result page
+- `:DeebeeEdit` - toggle the experimental local-only editable-grid PoC for the current results page
+- `:DeebeeEditCell` - edit the cell under the cursor while the PoC is in edit mode
+- `:DeebeeCommit` - commit staged PoC changes locally in the results buffer
+- `:DeebeeRollback` - roll back staged PoC changes to the last local baseline
+- `:DeebeeRevertRow` - revert the current row to the last local baseline
 - `:DeebeeRefreshExplorer` - reload explorer data for the active session
 - `:DeebeeExplorerOpen` - open the explorer item under the cursor
 - `:DeebeeExplorerToggle` - toggle the explorer node under the cursor
@@ -99,8 +104,11 @@ At the current implementation stage:
 - queries are cached in worker memory after execution
 - result paging is worker-cache paging, not database-cursor paging yet
 - explorer currently shows configured connections and loaded schemas with grouped views, materialized views, and tables
-- results render into a readonly grid buffer with row numbers and paged navigation
+- results render into a scratch grid buffer with row numbers and paged navigation
 - results buffer keymaps include `]p` for next page, `[p` for previous page, and `gr` to rerun the current query
-- editable grids are not implemented yet
+- results buffer also includes an experimental local-only editable-grid PoC: `e` toggles edit mode, `<CR>` edits the current cell, `<Tab>` and `<S-Tab>` move between cells, `u` reverts the current row, `gC` commits locally, and `gR` rolls back locally
+- the editable-grid PoC does not write to the database yet; it exists only to test the interaction feel before the real worker-backed implementation lands
+
+See `docs/editable-grid-poc.md` for the temporary prototype behavior.
 
 These are expected intermediate constraints while Milestone 1 is being built out.
