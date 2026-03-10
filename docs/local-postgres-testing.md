@@ -89,4 +89,9 @@ select id, organization_id, key, enabled, rollout_pct, environments from app.fea
 select * from support.tickets order by id limit 100;
 ```
 
-After running one of those, switch to the results pane and try `e`, `<CR>`, `gC`, and `gR`.
+After running one of those, switch to the results pane and try:
+
+- `e` to enter edit mode
+- `<CR>` to edit a cell
+- `gC` to open the pending-changes review (then `a` to apply locally)
+- `gR` to roll back staged local changes

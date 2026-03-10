@@ -4,6 +4,16 @@ local M = {}
 
 local namespace = vim.api.nvim_create_namespace('deebee-results-grid')
 local models = {}
+local rerender
+
+local function close_buffer_windows(buf)
+  local wins = vim.fn.win_findbuf(buf)
+  for _, win in ipairs(wins) do
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
+end
 
 local function is_null(value)
   return value == nil or value == vim.NIL
@@ -129,6 +139,186 @@ local function dirty_counts(model)
   return dirty_cells, dirty_rows
 end
 
+local function build_change_actions(model)
+  local actions = {}
+
+  for row_index = 1, #model.rows do
+    local row_changes = {}
+    for column_index, column_name in ipairs(model.columns) do
+      if cell_is_dirty(model, row_index, column_index) then
+        local before = model.baseline_rows[row_index][column_index]
+        local after = model.rows[row_index][column_index]
+        table.insert(row_changes, {
+          column = column_name,
+          before = before,
+          after = after,
+        })
+      end
+    end
+
+    if #row_changes > 0 then
+      table.insert(actions, {
+        row_index = row_index,
+        row_number = model.first_row + row_index - 1,
+        changes = row_changes,
+      })
+    end
+  end
+
+  return actions
+end
+
+local function close_review_for_model(model)
+  if not model or not model.review_buf then
+    return
+  end
+
+  local review_buf = model.review_buf
+  model.review_buf = nil
+
+  if not vim.api.nvim_buf_is_valid(review_buf) then
+    return
+  end
+
+  close_buffer_windows(review_buf)
+
+  if vim.api.nvim_buf_is_valid(review_buf) then
+    vim.api.nvim_buf_delete(review_buf, { force = true })
+  end
+end
+
+local function apply_local_commit(buf)
+  local model = models[buf]
+  if not model then
+    return false
+  end
+
+  local dirty_cells, dirty_rows = dirty_counts(model)
+  if dirty_cells == 0 then
+    notify.info('No staged editable-grid PoC changes to commit.')
+    return false
+  end
+
+  model.baseline_rows = clone_rows(model.rows)
+  rerender(buf, model.focus and model.focus.row or 1, model.focus and model.focus.col or 1)
+  notify.info(string.format(
+    'Committed %d local PoC cell changes across %d rows. No database write happened.',
+    dirty_cells,
+    dirty_rows
+  ))
+  return true
+end
+
+local function build_review_lines(model, actions)
+  local lines = {
+    'Deebee Pending Changes (local-only PoC)',
+    string.format('Query %s | Press a to apply locally | q to close review', model.query_id),
+    '',
+  }
+  local line_to_action = {}
+
+  if #actions == 0 then
+    table.insert(lines, 'No staged changes.')
+    return lines, line_to_action
+  end
+
+  for _, action in ipairs(actions) do
+    table.insert(lines, string.format('Row %d', action.row_number))
+    line_to_action[#lines] = action
+
+    for _, change in ipairs(action.changes) do
+      table.insert(lines, string.format(
+        '  - %s: %s -> %s',
+        change.column,
+        stringify_cell(change.before),
+        stringify_cell(change.after)
+      ))
+    end
+  end
+
+  return lines, line_to_action
+end
+
+local function jump_to_action_row(source_buf, action)
+  local model = models[source_buf]
+  if not model or not action then
+    return
+  end
+
+  local wins = vim.fn.win_findbuf(source_buf)
+  local target_win = nil
+  for _, win in ipairs(wins) do
+    if vim.api.nvim_win_is_valid(win) then
+      target_win = win
+      break
+    end
+  end
+
+  if not target_win then
+    return
+  end
+
+  vim.api.nvim_set_current_win(target_win)
+  local row = math.max(1, math.min(action.row_index, #model.rows))
+  local range = model.cell_ranges[row] and model.cell_ranges[row][1]
+  local col = range and range.start_col or 0
+  vim.api.nvim_win_set_cursor(target_win, { model.data_start + row - 1, col })
+  M.refresh_focus(source_buf)
+end
+
+local function open_review_window(source_buf, model, actions)
+  close_review_for_model(model)
+
+  local review_buf = vim.api.nvim_create_buf(false, true)
+  local lines, line_to_action = build_review_lines(model, actions)
+
+  vim.bo[review_buf].buftype = 'nofile'
+  vim.bo[review_buf].bufhidden = 'wipe'
+  vim.bo[review_buf].swapfile = false
+  vim.bo[review_buf].modifiable = false
+  vim.bo[review_buf].filetype = 'deebee-review'
+  vim.api.nvim_buf_set_name(review_buf, 'deebee://pending-changes/' .. model.query_id)
+  set_buffer_lines(review_buf, lines)
+
+  local width = math.min(100, math.max(60, vim.o.columns - 12))
+  local height = math.min(#lines + 2, math.max(10, vim.o.lines - 8))
+  local row = math.max(1, math.floor((vim.o.lines - height) / 2 - 1))
+  local col = math.max(1, math.floor((vim.o.columns - width) / 2))
+
+  local win = vim.api.nvim_open_win(review_buf, true, {
+    relative = 'editor',
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    style = 'minimal',
+    border = 'rounded',
+    title = ' Pending Changes ',
+    title_pos = 'center',
+  })
+
+  vim.wo[win].wrap = false
+  vim.wo[win].cursorline = true
+
+  model.review_buf = review_buf
+  vim.keymap.set('n', 'q', function()
+    close_review_for_model(model)
+  end, { buffer = review_buf, silent = true, desc = 'Close pending changes review' })
+
+  vim.keymap.set('n', 'a', function()
+    if apply_local_commit(source_buf) then
+      close_review_for_model(model)
+    end
+  end, { buffer = review_buf, silent = true, desc = 'Apply local PoC changes' })
+
+  vim.keymap.set('n', '<CR>', function()
+    local line = vim.api.nvim_win_get_cursor(0)[1]
+    local action = line_to_action[line]
+    close_review_for_model(model)
+    jump_to_action_row(source_buf, action)
+  end, { buffer = review_buf, silent = true, desc = 'Jump to row in results grid' })
+end
+
 local function build_initial_model(result)
   local page = result.page or result
   local rows = clone_rows(page.rows or {})
@@ -162,10 +352,10 @@ local function build_controls_line(model)
   end
 
   if model.mode == 'edit' then
-    return 'Controls: e view | <CR> edit cell | <Tab>/<S-Tab> move | u revert row | gC commit | gR rollback'
+    return 'Controls: e view | <CR> edit cell | <Tab>/<S-Tab> move | u revert row | gC review+commit | gR rollback'
   end
 
-  return 'Controls: e edit | ]p/[p page | gr rerun | gC commit | gR rollback'
+  return 'Controls: e edit | ]p/[p page | gr rerun | gC review+commit | gR rollback'
 end
 
 local function build_mode_line(model)
@@ -422,11 +612,13 @@ local function jump_to_cell(buf, model, row_index, column_index)
   vim.api.nvim_win_set_cursor(0, { model.data_start + row - 1, range.start_col })
 end
 
-local function rerender(buf, preferred_row, preferred_col)
+rerender = function(buf, preferred_row, preferred_col)
   local model = models[buf]
   if not model then
     return
   end
+
+  close_review_for_model(model)
 
   local row, column = clamp_position(model, preferred_row, preferred_col)
   refresh_layout(model)
@@ -528,8 +720,8 @@ function M.setup_buffer(buf)
     M.revert_row(buf)
   end, 'Revert current row')
   map('gC', function()
-    M.commit(buf)
-  end, 'Commit local PoC changes')
+    M.review_commit(buf)
+  end, 'Review and commit local PoC changes')
   map('gR', function()
     M.rollback(buf)
   end, 'Rollback local PoC changes')
@@ -546,6 +738,7 @@ function M.setup_buffer(buf)
     group = group,
     buffer = buf,
     callback = function()
+      close_review_for_model(models[buf])
       models[buf] = nil
     end,
   })
@@ -624,24 +817,22 @@ function M.edit_cell(buf)
 end
 
 function M.commit(buf)
+  M.review_commit(buf)
+end
+
+function M.review_commit(buf)
   local model = ensure_model(buf)
   if not model then
     return
   end
 
-  local dirty_cells, dirty_rows = dirty_counts(model)
-  if dirty_cells == 0 then
-    notify.info('No staged editable-grid PoC changes to commit.')
+  local actions = build_change_actions(model)
+  if #actions == 0 then
+    notify.info('No staged editable-grid PoC changes to review.')
     return
   end
 
-  model.baseline_rows = clone_rows(model.rows)
-  rerender(buf, model.focus and model.focus.row or 1, model.focus and model.focus.col or 1)
-  notify.info(string.format(
-    'Committed %d local PoC cell changes across %d rows. No database write happened.',
-    dirty_cells,
-    dirty_rows
-  ))
+  open_review_window(buf, model, actions)
 end
 
 function M.rollback(buf)
@@ -657,6 +848,7 @@ function M.rollback(buf)
   end
 
   model.rows = clone_rows(model.baseline_rows)
+  close_review_for_model(model)
   rerender(buf, model.focus and model.focus.row or 1, model.focus and model.focus.col or 1)
   notify.info('Rolled back local editable-grid PoC changes.')
 end

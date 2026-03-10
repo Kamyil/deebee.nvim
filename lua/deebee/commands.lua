@@ -519,7 +519,7 @@ end
 
 function M.commit_results()
   with_error_boundary(function()
-    grid.commit(results_buffer())
+    grid.review_commit(results_buffer())
   end)
 end
 
@@ -532,6 +532,12 @@ end
 function M.revert_results_row()
   with_error_boundary(function()
     grid.revert_row(results_buffer())
+  end)
+end
+
+function M.review_edit_buffer()
+  with_error_boundary(function()
+    grid.review_commit(results_buffer())
   end)
 end
 
@@ -614,6 +620,10 @@ function M.register()
 
   vim.api.nvim_create_user_command('DeebeeRevertRow', function()
     M.revert_results_row()
+  end, {})
+
+  vim.api.nvim_create_user_command('DeebeeReviewChanges', function()
+    M.review_edit_buffer()
   end, {})
 
   vim.api.nvim_create_user_command('DeebeeWorkerInfo', function()

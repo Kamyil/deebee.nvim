@@ -27,6 +27,7 @@ The goal is only to test whether the interaction model feels right inside the ex
 - `:DeebeeCommit`
 - `:DeebeeRollback`
 - `:DeebeeRevertRow`
+- `:DeebeeReviewChanges`
 
 ## Buffer Keymaps
 
@@ -37,13 +38,14 @@ Inside the results buffer:
 - `<Tab>` - jump to the next cell in edit mode
 - `<S-Tab>` - jump to the previous cell in edit mode
 - `u` - revert the current row to the last local baseline
-- `gC` - commit staged changes locally
+- `gC` - open pending-changes review (press `a` there to apply locally)
 - `gR` - roll back staged changes locally
 
 ## Behavior Notes
 
 - query paging and rerun are blocked while the PoC has staged local changes
-- committing only updates the local baseline inside the buffer
+- committing is now a two-step flow: review first, then apply locally
+- applying from the review only updates the local baseline inside the buffer
 - rolling back restores the last local baseline
 - typing `NULL` in the cell prompt stores a null-like display value in the PoC model
 
@@ -53,7 +55,8 @@ Inside the results buffer:
 2. Press `e` in the results grid.
 3. Move with normal motions or `<Tab>`.
 4. Press `<CR>` to edit a cell.
-5. Try `gC` and `gR` to see whether the staged-change model feels natural.
+5. Press `gC`, inspect the pending-changes list, and press `a` to apply locally.
+6. Use `gR` to discard staged changes.
 
 ## Why This Exists
 
